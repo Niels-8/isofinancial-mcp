@@ -3,7 +3,7 @@ name = "iso-financial-mcp"
 version = "0.1.0"
 description = "Open-source MCP server providing comprehensive financial market data endpoints for short squeeze detection and analysis"
 authors = [
-    {name = "Niels-8", email = "niels-8@github.com"}
+    {name = "Niels-8"}
 ]
 readme = "README.md"
 license = {file = "LICENSE"}

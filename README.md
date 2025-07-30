@@ -26,13 +26,7 @@ An open-source MCP (Model Context Protocol) server providing comprehensive finan
 ### Using uv (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/Niels-8/isofinancial-mcp.git
-cd isofinancial-mcp
-
-# Create virtual environment and install dependencies
-uv venv
-uv pip install -e .
+uv add iso-financial-mcp
 ```
 
 ### Using pip
