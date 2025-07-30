@@ -7,7 +7,7 @@ Serveur utilisant uniquement les endpoints d'API qui existent réellement
 from fastmcp.server.server import FastMCP
 from typing import Optional
 import pandas as pd
-from datasources import yfinance_source as yf_source
+from .datasources import yfinance_source as yf_source
 
 # Instantiate the server first
 server = FastMCP(

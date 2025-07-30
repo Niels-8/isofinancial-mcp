@@ -1,12 +1,29 @@
 [project]
 name = "iso-financial-mcp"
 version = "0.1.0"
-description = "Open-source MCP server exposing market-data endpoints using free APIs for short squeeze detection"
+description = "Open-source MCP server providing comprehensive financial market data endpoints for short squeeze detection and analysis"
 authors = [
-    {name = "Trading Agents Team"}
+    {name = "Niels-8", email = "niels-8@github.com"}
 ]
 readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
+keywords = ["finance", "trading", "market-data", "mcp", "model-context-protocol", "short-squeeze", "options", "stocks"]
 dependencies = [
     "fastmcp>=0.2.0",
     "httpx>=0.27.0",
@@ -20,7 +37,9 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "cachetools>=5.3.0",
     "aiohttp>=3.9.0",
-    "asyncio-throttle>=1.0.2"
+    "asyncio-throttle>=1.0.2",
+    "build>=1.2.2.post1",
+    "twine>=6.1.0",
 ]
 
 [project.optional-dependencies]
@@ -36,13 +55,16 @@ dev = [
 [project.scripts]
 finance-mcp = "server:app"
 
+[project.urls]
+Homepage = "https://github.com/Niels-8/isofinancial-mcp"
+Repository = "https://github.com/Niels-8/isofinancial-mcp"
+Documentation = "https://github.com/Niels-8/isofinancial-mcp#readme"
+Issues = "https://github.com/Niels-8/isofinancial-mcp/issues"
+"Bug Tracker" = "https://github.com/Niels-8/isofinancial-mcp/issues"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["datasources"]
-sources = ["server.py", "run_mcp.py", "main.py"]
 
 [tool.black]
 line-length = 100
