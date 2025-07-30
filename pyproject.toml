@@ -1,6 +1,6 @@
 [project]
 name = "iso-financial-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open-source MCP server providing comprehensive financial market data endpoints for short squeeze detection and analysis"
 authors = [
     {name = "Niels-8"}
