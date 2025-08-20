@@ -1,7 +1,7 @@
 [project]
 name = "iso-financial-mcp"
-version = "0.1.1"
-description = "Open-source MCP server providing comprehensive financial market data endpoints for short squeeze detection and analysis"
+version = "0.2.0"
+description = "Enhanced MCP server providing comprehensive financial market data endpoints for quantitative trading opportunity detection and analysis"
 authors = [
     {name = "Niels-8"}
 ]
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
-keywords = ["finance", "trading", "market-data", "mcp", "model-context-protocol", "short-squeeze", "options", "stocks"]
+keywords = ["finance", "trading", "market-data", "mcp", "model-context-protocol", "short-squeeze", "options", "stocks", "sec-filings", "finra", "earnings", "quantitative-analysis", "ai-trading"]
 dependencies = [
     "fastmcp>=0.2.0",
     "httpx>=0.27.0",
@@ -40,6 +40,8 @@ dependencies = [
     "asyncio-throttle>=1.0.2",
     "build>=1.2.2.post1",
     "twine>=6.1.0",
+    "pytrends>=4.9.0",
+    "feedparser>=6.0.0",
 ]
 
 [project.optional-dependencies]
