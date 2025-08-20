@@ -40,6 +40,8 @@ dependencies = [
     "asyncio-throttle>=1.0.2",
     "build>=1.2.2.post1",
     "twine>=6.1.0",
+    "pytrends>=4.9.0",
+    "feedparser>=6.0.0",
 ]
 
 [project.optional-dependencies]
