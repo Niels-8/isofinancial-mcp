@@ -42,6 +42,7 @@ dependencies = [
     "twine>=6.1.0",
     "pytrends>=4.9.0",
     "feedparser>=6.0.0",
+    "autogen-ext[mcp]>=0.7.4",
 ]
 
 [project.optional-dependencies]
