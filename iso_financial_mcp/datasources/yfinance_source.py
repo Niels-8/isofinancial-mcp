@@ -8,6 +8,16 @@ from typing import Optional, Dict, Any, List, Tuple
 from functools import lru_cache
 import asyncio
 import pandas as pd
+import warnings
+from .validation import (
+    validate_ticker, validate_period_string, validate_interval_string, 
+    validate_frequency, ValidationError
+)
+
+# Suppress pandas FutureWarnings from yfinance
+warnings.filterwarnings('ignore', category=FutureWarning, module='yfinance')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*pandas.*')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*count.*positional.*')
 
 # --- Helper Functions ---
 
@@ -34,9 +44,15 @@ async def get_info(ticker: str) -> Optional[Dict[str, Any]]:
     This is a core function that retrieves a wide range of data.
     """
     try:
+        # Validate input
+        ticker = validate_ticker(ticker)
+        
         ticker_obj = await run_in_executor(get_ticker_obj, ticker)
         info = await run_in_executor(lambda: ticker_obj.info)
         return info
+    except ValidationError as e:
+        print(f"Validation error for ticker {ticker}: {e}")
+        return None
     except Exception as e:
         print(f"Error fetching info for {ticker}: {e}")
         return None
@@ -50,11 +66,19 @@ async def get_historical_prices(
     Get historical market data.
     """
     try:
+        # Validate inputs
+        ticker = validate_ticker(ticker)
+        period = validate_period_string(period)
+        interval = validate_interval_string(interval)
+        
         ticker_obj = await run_in_executor(get_ticker_obj, ticker)
         history = await run_in_executor(
             ticker_obj.history, period=period, interval=interval
         )
         return history
+    except ValidationError as e:
+        print(f"Validation error for {ticker}: {e}")
+        return None
     except Exception as e:
         print(f"Error fetching historical prices for {ticker}: {e}")
         return None
@@ -73,15 +97,21 @@ async def get_actions(ticker: str) -> Optional[pd.DataFrame]:
 
 async def get_balance_sheet(ticker: str, freq: str = "yearly") -> Optional[pd.DataFrame]:
     """
-
     Get balance sheet data. `freq` can be 'yearly' or 'quarterly'.
     """
     try:
+        # Validate inputs
+        ticker = validate_ticker(ticker)
+        freq = validate_frequency(freq)
+        
         ticker_obj = await run_in_executor(get_ticker_obj, ticker)
         balance_sheet = await run_in_executor(
             lambda: ticker_obj.balance_sheet if freq == "yearly" else ticker_obj.quarterly_balance_sheet
         )
         return balance_sheet
+    except ValidationError as e:
+        print(f"Validation error for {ticker}: {e}")
+        return None
     except Exception as e:
         print(f"Error fetching balance sheet for {ticker}: {e}")
         return None

@@ -11,6 +11,7 @@ from typing import List, Dict, Optional, Any
 from cachetools import TTLCache
 from asyncio_throttle import Throttler
 import logging
+from .validation import validate_ticker, validate_form_types, validate_positive_integer, ValidationError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,18 +43,24 @@ async def get_sec_filings(
     Returns:
         List of filing dictionaries with date, form, url, and title
     """
-    if form_types is None:
-        form_types = ["8-K", "S-3", "424B", "10-Q", "10-K"]
-    
-    # Create cache key
-    cache_key = f"sec_filings_{ticker}_{'-'.join(form_types)}_{lookback_days}"
-    
-    # Check cache first
-    if cache_key in sec_cache:
-        logger.info(f"SEC filings cache hit for {ticker}")
-        return sec_cache[cache_key]
-    
     try:
+        # Validate inputs
+        ticker = validate_ticker(ticker)
+        
+        if form_types is None:
+            form_types = ["8-K", "S-3", "424B", "10-Q", "10-K"]
+        form_types = validate_form_types(form_types)
+        
+        lookback_days = validate_positive_integer(lookback_days, "lookback_days", min_value=1, max_value=3650)
+        
+        # Create cache key
+        cache_key = f"sec_filings_{ticker}_{'-'.join(form_types)}_{lookback_days}"
+        
+        # Check cache first
+        if cache_key in sec_cache:
+            logger.info(f"SEC filings cache hit for {ticker}")
+            return sec_cache[cache_key]
+        
         # Apply rate limiting
         async with sec_throttler:
             filings = await _fetch_sec_filings(ticker, form_types, lookback_days)
@@ -64,6 +71,9 @@ async def get_sec_filings(
         
         return filings
         
+    except ValidationError as e:
+        logger.error(f"Validation error for SEC filings {ticker}: {e}")
+        return []
     except Exception as e:
         logger.error(f"Error fetching SEC filings for {ticker}: {e}")
         # Return empty list on error for graceful degradation

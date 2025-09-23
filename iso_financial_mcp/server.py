@@ -8,6 +8,11 @@ from fastmcp.server.server import FastMCP
 from typing import Optional, List
 import pandas as pd
 import json
+import warnings
+
+# Suppress pandas FutureWarnings globally for the server
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*pandas.*')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*count.*positional.*')
 from .datasources import yfinance_source as yf_source
 from .datasources import sec_source
 from .datasources import finra_source

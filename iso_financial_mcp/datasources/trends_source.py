@@ -11,6 +11,12 @@ from cachetools import TTLCache
 from asyncio_throttle import Throttler
 import logging
 import pandas as pd
+import warnings
+
+# Suppress pandas FutureWarnings from pytrends
+warnings.filterwarnings('ignore', category=FutureWarning, module='pytrends')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*pandas.*')
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*count.*positional.*')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -21,10 +21,8 @@ def main():
     if args.mode == 'stdio':
         # Mode stdio pour MCP (uvx)
         try:
-            from fastmcp import serve_stdio
-            # Import relatif pour éviter les problèmes de chemin
-            import server
-            asyncio.run(serve_stdio(server.app))
+            from iso_financial_mcp import server
+            asyncio.run(server.run_stdio_async(show_banner=False))
         except ImportError as e:
             logging.error(f'Error importing FastMCP: {e}')
             logging.error('Make sure fastmcp is installed: pip install fastmcp')
@@ -33,8 +31,8 @@ def main():
         # Mode HTTP pour serveur web
         try:
             import uvicorn
-            import server
-            uvicorn.run(server.app, host=args.host, port=args.port)
+            from iso_financial_mcp import server
+            uvicorn.run(server, host=args.host, port=args.port)
         except ImportError as e:
             logging.error(f'Error importing uvicorn: {e}')
             sys.exit(1)

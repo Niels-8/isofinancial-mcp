@@ -12,6 +12,11 @@ from cachetools import TTLCache
 from asyncio_throttle import Throttler
 import logging
 import io
+import warnings
+from .validation import validate_ticker, validate_date_range, ValidationError
+
+# Suppress pandas FutureWarnings
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*pandas.*')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,21 +48,27 @@ async def get_finra_short_volume(
     Returns:
         List of short volume dictionaries with date, short_volume, total_volume, and ratio
     """
-    # Set default date range if not provided
-    if not end_date:
-        end_date = datetime.now().strftime("%Y-%m-%d")
-    if not start_date:
-        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    
-    # Create cache key
-    cache_key = f"finra_short_{ticker}_{start_date}_{end_date}"
-    
-    # Check cache first
-    if cache_key in finra_cache:
-        logger.info(f"FINRA short volume cache hit for {ticker}")
-        return finra_cache[cache_key]
-    
     try:
+        # Validate inputs
+        ticker = validate_ticker(ticker)
+        
+        # Set default date range if not provided
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        # Validate date range
+        start_date, end_date = validate_date_range(start_date, end_date)
+        
+        # Create cache key
+        cache_key = f"finra_short_{ticker}_{start_date}_{end_date}"
+        
+        # Check cache first
+        if cache_key in finra_cache:
+            logger.info(f"FINRA short volume cache hit for {ticker}")
+            return finra_cache[cache_key]
+        
         # Apply rate limiting
         async with finra_throttler:
             short_data = await _fetch_finra_short_volume(ticker, start_date, end_date)
@@ -68,6 +79,9 @@ async def get_finra_short_volume(
         
         return short_data
         
+    except ValidationError as e:
+        logger.error(f"Validation error for FINRA short volume {ticker}: {e}")
+        return []
     except Exception as e:
         logger.error(f"Error fetching FINRA short volume for {ticker}: {e}")
         # Fallback to alternative implementation if main source fails

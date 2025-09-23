@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Any
 from cachetools import TTLCache
 from asyncio_throttle import Throttler
 import logging
+from .validation import validate_ticker, ValidationError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,15 +39,18 @@ async def get_earnings_calendar(ticker: str) -> List[Dict[str, Any]]:
     Returns:
         List of earnings dictionaries with date, period, estimates, actuals, and timing
     """
-    # Create cache key
-    cache_key = f"earnings_{ticker}"
-    
-    # Check cache first
-    if cache_key in earnings_cache:
-        logger.info(f"Earnings calendar cache hit for {ticker}")
-        return earnings_cache[cache_key]
-    
     try:
+        # Validate input
+        ticker = validate_ticker(ticker)
+        
+        # Create cache key
+        cache_key = f"earnings_{ticker}"
+        
+        # Check cache first
+        if cache_key in earnings_cache:
+            logger.info(f"Earnings calendar cache hit for {ticker}")
+            return earnings_cache[cache_key]
+        
         # Apply rate limiting
         async with earnings_throttler:
             earnings_data = await _fetch_earnings_calendar(ticker)
@@ -57,6 +61,9 @@ async def get_earnings_calendar(ticker: str) -> List[Dict[str, Any]]:
         
         return earnings_data
         
+    except ValidationError as e:
+        logger.error(f"Validation error for ticker {ticker}: {e}")
+        return []
     except Exception as e:
         logger.error(f"Error fetching earnings calendar for {ticker}: {e}")
         # Return empty list on error for graceful degradation
@@ -178,21 +185,44 @@ def _parse_yahoo_earnings_table(soup: BeautifulSoup, ticker: str) -> List[Dict[s
         # Look for earnings tables
         tables = soup.find_all('table')
         
+        # Ensure tables is a valid list
+        if tables is None:
+            logger.warning(f"No tables found in Yahoo earnings page for {ticker}")
+            return []
+        
         for table in tables:
+            if table is None:
+                continue
+                
             rows = table.find_all('tr')
             
+            # Ensure rows is a valid list and not None
+            if rows is None:
+                logger.debug(f"No rows found in table for {ticker}")
+                continue
+            
             for row in rows:
+                if row is None:
+                    continue
+                    
                 cells = row.find_all(['td', 'th'])
                 
-                if len(cells) >= 4:  # Minimum columns for earnings data
-                    # Try to extract earnings information
-                    cell_texts = [cell.get_text(strip=True) for cell in cells]
+                # Ensure cells is a valid list
+                if cells is None or len(cells) < 4:
+                    continue
+                
+                # Try to extract earnings information
+                try:
+                    cell_texts = [cell.get_text(strip=True) for cell in cells if cell is not None]
                     
                     # Look for ticker symbol in the row
                     if any(ticker.upper() in text.upper() for text in cell_texts):
                         earnings_record = _parse_earnings_row(cell_texts, ticker)
                         if earnings_record:
                             earnings_data.append(earnings_record)
+                except Exception as e:
+                    logger.debug(f"Error extracting cell text for {ticker}: {e}")
+                    continue
         
         return earnings_data
         
@@ -223,12 +253,20 @@ async def _fetch_nasdaq_earnings(ticker: str) -> List[Dict[str, Any]]:
             # Parse Nasdaq earnings data
             earnings_data = []
             
-            if 'data' in data and 'rows' in data['data']:
-                for row in data['data']['rows']:
-                    if row.get('symbol', '').upper() == ticker.upper():
-                        earnings_record = _format_nasdaq_earnings(row)
-                        if earnings_record:
-                            earnings_data.append(earnings_record)
+            # Safely access nested data structure
+            if 'data' in data and isinstance(data['data'], dict) and 'rows' in data['data']:
+                rows = data['data']['rows']
+                # Ensure rows is iterable and not None
+                if rows is not None and hasattr(rows, '__iter__'):
+                    for row in rows:
+                        if isinstance(row, dict) and row.get('symbol', '').upper() == ticker.upper():
+                            earnings_record = _format_nasdaq_earnings(row)
+                            if earnings_record:
+                                earnings_data.append(earnings_record)
+                else:
+                    logger.warning(f"Nasdaq API returned non-iterable rows data for {ticker}: {type(rows)}")
+            else:
+                logger.warning(f"Nasdaq API returned unexpected data structure for {ticker}: missing 'data' or 'rows' keys")
             
             return earnings_data
             

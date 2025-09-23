@@ -1,6 +1,6 @@
 [project]
 name = "iso-financial-mcp"
-version = "0.2.1"
+version = "0.2.2"
 description = "Enhanced MCP server providing comprehensive financial market data endpoints for quantitative trading opportunity detection and analysis"
 authors = [
     {name = "Niels-8"}
@@ -56,7 +56,7 @@ dev = [
 ]
 
 [project.scripts]
-finance-mcp = "server:app"
+finance-mcp = "iso_financial_mcp.server:server"
 
 [project.urls]
 Homepage = "https://github.com/Niels-8/isofinancial-mcp"
