@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server providing comprehensive financial market d
 endpoints for short squeeze detection and analysis using free APIs.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.2"
 __author__ = "Niels-8"
 __email__ = "niels-8@github.com"
 
