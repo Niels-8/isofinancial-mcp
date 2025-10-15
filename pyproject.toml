@@ -1,6 +1,6 @@
 [project]
 name = "iso-financial-mcp"
-version = "0.2.2"
+version = "0.3.0"
 description = "Enhanced MCP server providing comprehensive financial market data endpoints for quantitative trading opportunity detection and analysis"
 authors = [
     {name = "Niels-8"}
@@ -98,3 +98,8 @@ strict_equality = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short" 
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+]
