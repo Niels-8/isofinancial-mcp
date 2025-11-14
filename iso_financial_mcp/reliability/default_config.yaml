@@ -1,0 +1,77 @@
+# Default configuration for ISO Financial MCP data sources
+# This file is bundled with the package and provides sensible defaults
+# Users can override by creating ~/.iso_financial_mcp/config/datasources.yaml
+
+# SEC data sources configuration
+sec:
+  sources:
+    - name: edgar_api
+      enabled: true
+      priority: 1
+      timeout: 10
+      max_retries: 2
+      
+    - name: rss_feed
+      enabled: true
+      priority: 2
+      timeout: 5
+      max_retries: 1
+      
+  lookback_extension:
+    enabled: true
+    initial_days: 30
+    extended_days: 90
+
+# Google Trends configuration
+trends:
+  sources:
+    - name: pytrends_direct
+      enabled: true
+      priority: 1
+      rate_limit: 0.2  # 1 req / 5 sec
+      timeout: 15
+      
+  retry_strategy:
+    max_attempts: 3
+    initial_delay: 10
+    max_delay: 60
+    exponential_base: 2.0
+    jitter_range: [1.0, 3.0]
+    
+  adaptive_rate_limit:
+    enabled: true
+    error_threshold: 0.5
+    slow_mode_delay: 10
+
+# Earnings calendar configuration
+earnings:
+  sources:
+    - name: yahoo_finance
+      enabled: true
+      priority: 1
+      
+  merge_strategy: deduplicate_by_date
+  estimate_fallback: true
+  require_future_date: true
+
+# Cache configuration
+cache:
+  memory:
+    max_size: 1000
+    ttl_seconds: 3600  # 1 hour
+    
+  disk:
+    enabled: true
+    path: ~/.iso_financial_mcp/cache
+    ttl_seconds: 604800  # 7 days
+    max_size_mb: 500
+    
+  stale_fallback: true
+
+# Health monitoring configuration
+health_monitor:
+  enabled: true
+  window_size: 100
+  unhealthy_threshold: 0.3
+  metrics_retention_days: 7
+  log_path: ~/.iso_financial_mcp/health_metrics.jsonl

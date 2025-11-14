@@ -24,8 +24,8 @@ def main():
             from iso_financial_mcp import server
             asyncio.run(server.run_stdio_async(show_banner=False))
         except ImportError as e:
-            logging.error(f'Error importing FastMCP: {e}')
-            logging.error('Make sure fastmcp is installed: pip install fastmcp')
+            logging.error(f'Error importing IsoFinancial-MCP dependencies: {e}')
+            logging.error('Make sure all dependencies are installed: uv sync')
             sys.exit(1)
     else:
         # Mode HTTP pour serveur web

@@ -73,14 +73,21 @@ async def get_historical_prices(
         
         ticker_obj = await run_in_executor(get_ticker_obj, ticker)
         history = await run_in_executor(
-            ticker_obj.history, period=period, interval=interval
+            lambda: ticker_obj.history(period=period, interval=interval)
         )
+        
+        if history is None or history.empty:
+            print(f"No historical data returned for {ticker} (period={period}, interval={interval})")
+            return None
+            
         return history
     except ValidationError as e:
         print(f"Validation error for {ticker}: {e}")
         return None
     except Exception as e:
         print(f"Error fetching historical prices for {ticker}: {e}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
         return None
 
 async def get_actions(ticker: str) -> Optional[pd.DataFrame]:

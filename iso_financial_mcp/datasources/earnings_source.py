@@ -254,19 +254,22 @@ async def _fetch_nasdaq_earnings(ticker: str) -> List[Dict[str, Any]]:
             earnings_data = []
             
             # Safely access nested data structure
-            if 'data' in data and isinstance(data['data'], dict) and 'rows' in data['data']:
-                rows = data['data']['rows']
-                # Ensure rows is iterable and not None
-                if rows is not None and hasattr(rows, '__iter__'):
-                    for row in rows:
-                        if isinstance(row, dict) and row.get('symbol', '').upper() == ticker.upper():
-                            earnings_record = _format_nasdaq_earnings(row)
-                            if earnings_record:
-                                earnings_data.append(earnings_record)
+            if 'data' in data and isinstance(data['data'], dict):
+                if 'rows' in data['data']:
+                    rows = data['data']['rows']
+                    # Ensure rows is iterable and not None
+                    if rows is not None and hasattr(rows, '__iter__') and not isinstance(rows, str):
+                        for row in rows:
+                            if isinstance(row, dict) and row.get('symbol', '').upper() == ticker.upper():
+                                earnings_record = _format_nasdaq_earnings(row)
+                                if earnings_record:
+                                    earnings_data.append(earnings_record)
+                    else:
+                        logger.warning(f"Nasdaq API returned non-iterable rows data for {ticker}: {type(rows)}")
                 else:
-                    logger.warning(f"Nasdaq API returned non-iterable rows data for {ticker}: {type(rows)}")
+                    logger.warning(f"Nasdaq API missing 'rows' key for {ticker}. Available keys: {list(data['data'].keys())}")
             else:
-                logger.warning(f"Nasdaq API returned unexpected data structure for {ticker}: missing 'data' or 'rows' keys")
+                logger.warning(f"Nasdaq API returned unexpected data structure for {ticker}. Top-level keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
             
             return earnings_data
             

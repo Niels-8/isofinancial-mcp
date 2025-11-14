@@ -12,6 +12,8 @@ from asyncio_throttle import Throttler
 import logging
 import pandas as pd
 import warnings
+import random
+import time
 
 # Suppress pandas FutureWarnings from pytrends
 warnings.filterwarnings('ignore', category=FutureWarning, module='pytrends')
@@ -25,8 +27,8 @@ logger = logging.getLogger(__name__)
 # Cache with 24-hour TTL as per requirements
 trends_cache = TTLCache(maxsize=500, ttl=86400)  # 24 hours = 86400 seconds
 
-# Rate limiter for Google Trends (2 requests per second to be very conservative)
-trends_throttler = Throttler(rate_limit=2, period=1.0)
+# Rate limiter for Google Trends (1 request every 3 seconds to avoid 429 errors)
+trends_throttler = Throttler(rate_limit=1, period=3.0)
 
 class TrendsError(Exception):
     """Custom exception for Google Trends errors"""
@@ -78,18 +80,40 @@ async def get_google_trends(
 
 async def _fetch_google_trends(term: str, window_days: int) -> Dict[str, Any]:
     """
-    Internal function to fetch Google Trends data using pytrends.
+    Internal function to fetch Google Trends data using pytrends with retry logic.
     """
-    try:
-        # Run pytrends in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        trends_data = await loop.run_in_executor(None, _get_trends_data, term, window_days)
-        
-        return trends_data
-        
-    except Exception as e:
-        logger.error(f"Error in _fetch_google_trends for {term}: {e}")
-        raise TrendsError(f"Failed to fetch trends data: {e}")
+    max_retries = 3
+    base_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            # Add random jitter to avoid detection patterns
+            jitter = random.uniform(0.5, 2.0)
+            await asyncio.sleep(jitter)
+            
+            # Run pytrends in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            trends_data = await loop.run_in_executor(None, _get_trends_data, term, window_days)
+            
+            return trends_data
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Check if it's a rate limit error (429)
+            if '429' in error_msg or 'rate' in error_msg or 'quota' in error_msg:
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + random.uniform(1, 3)
+                    logger.warning(f"Rate limit hit for {term}, retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Rate limit exceeded for {term} after {max_retries} attempts")
+                    raise TrendsError(f"Rate limit exceeded: {e}")
+            else:
+                logger.error(f"Error in _fetch_google_trends for {term}: {e}")
+                raise TrendsError(f"Failed to fetch trends data: {e}")
 
 def _get_trends_data(term: str, window_days: int) -> Dict[str, Any]:
     """

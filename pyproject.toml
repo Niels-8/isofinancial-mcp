@@ -1,6 +1,6 @@
 [project]
 name = "iso-financial-mcp"
-version = "0.3.1"
+version = "0.4.0"
 description = "Enhanced MCP server providing comprehensive financial market data endpoints for quantitative trading opportunity detection and analysis"
 authors = [
     {name = "Niels-8"}
@@ -43,6 +43,7 @@ dependencies = [
     "pytrends>=4.9.0",
     "feedparser>=6.0.0",
     "autogen-ext[mcp]>=0.7.4",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -97,7 +98,8 @@ strict_equality = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-v --tb=short" 
+addopts = "-v --tb=short"
+anyio_backends = ["asyncio"] 
 
 [dependency-groups]
 dev = [

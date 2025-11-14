@@ -5,6 +5,7 @@ Finance MCP Server
 
 from fastmcp.server.server import FastMCP
 from typing import Optional, List
+from datetime import datetime
 import pandas as pd
 import json
 import warnings
@@ -27,10 +28,16 @@ from .meta_tools import (
     format_multi_snapshot_for_llm
 )
 
+# Import configuration manager
+from .reliability.configuration_manager import ConfigurationManager
+
 # Instantiate the server first
 server = FastMCP(
     name="IsoFinancial-MCP"
 )
+
+# Initialize configuration manager
+config_manager = ConfigurationManager()
 
 # --- Tool Definitions ---
 
@@ -370,6 +377,579 @@ NOW PROCEED WITH STEP 1: Execute web_search to find ticker symbols for "{sector_
 """
     
     return guidance.strip()
+
+# --- CONFIGURATION TOOLS (MCP Configuration Management) ---
+
+@server.tool
+async def configure_api_key(provider: str, api_key: str) -> str:
+    """
+    Configure an API key for a specific provider.
+    
+    This tool allows you to set API keys for optional data sources directly through MCP,
+    without needing to edit configuration files manually. The configuration is persisted
+    to the YAML config file for future sessions.
+    
+    Supported providers:
+    - alpha_vantage: Alpha Vantage API for additional earnings data
+    - serpapi: SerpAPI for Google Trends fallback
+    
+    :param provider: Provider name (alpha_vantage, serpapi)
+    :param api_key: API key to configure
+    :return: Confirmation message with validation status
+    
+    Example Usage:
+        # Configure Alpha Vantage API key
+        result = await configure_api_key("alpha_vantage", "YOUR_KEY_HERE")
+        
+        # Configure SerpAPI key
+        result = await configure_api_key("serpapi", "YOUR_SERPAPI_KEY")
+    
+    Note:
+        - The API key will be validated before being saved
+        - Invalid keys will still be saved but a warning will be shown
+        - Keys are persisted to ~/.iso_financial_mcp/config/datasources.yaml
+    """
+    # Validate provider
+    valid_providers = ["alpha_vantage", "serpapi"]
+    if provider not in valid_providers:
+        return f"❌ Invalid provider '{provider}'. Valid providers: {', '.join(valid_providers)}"
+    
+    # Store in configuration manager
+    config_key = f"{provider}.api_key"
+    config_manager.set_mcp_config(config_key, api_key)
+    
+    # Also enable the provider
+    config_manager.set_mcp_config(f"{provider}.enabled", True)
+    
+    # Validate the key by testing it
+    try:
+        is_valid, message = await config_manager.validate_api_key(provider, api_key)
+        
+        if is_valid:
+            return f"✅ API key for {provider} configured and validated successfully!\n\n" \
+                   f"The key has been saved to your configuration file and will be used in future sessions.\n" \
+                   f"You can now use data sources that require {provider}."
+        else:
+            return f"⚠️ API key for {provider} has been configured but validation failed.\n\n" \
+                   f"Validation message: {message}\n\n" \
+                   f"The key has been saved, but please verify it's correct. Common issues:\n" \
+                   f"- Invalid or expired API key\n" \
+                   f"- API rate limit exceeded (try again later)\n" \
+                   f"- Network connectivity issues\n\n" \
+                   f"You can test the key again by reconfiguring it or checking data source status."
+    except Exception as e:
+        return f"⚠️ API key for {provider} has been configured but validation encountered an error.\n\n" \
+               f"Error: {str(e)}\n\n" \
+               f"The key has been saved and may still work. Try using it with data retrieval tools."
+
+@server.tool
+async def get_configuration() -> str:
+    """
+    Get current configuration (API keys are masked for security).
+    
+    This tool shows the current configuration including API keys (masked), cache settings,
+    and other configuration options. It helps you verify what's configured and identify
+    what might need to be set up.
+    
+    :return: Current configuration as formatted string
+    
+    Example Usage:
+        # View current configuration
+        result = await get_configuration()
+    
+    Note:
+        - API keys are masked (only last 4 characters shown)
+        - Configuration is merged from all sources (MCP, env vars, YAML, defaults)
+        - Priority order: MCP tools > env vars > YAML > defaults
+    """
+    try:
+        config = config_manager.get_all_config(mask_secrets=True)
+        
+        output = ["📋 Current Configuration", "=" * 70, ""]
+        
+        # API Keys section
+        output.append("🔑 API Keys:")
+        output.append("")
+        
+        for provider in ["alpha_vantage", "serpapi"]:
+            provider_config = config.get(provider, {})
+            enabled = provider_config.get("enabled", False)
+            api_key = provider_config.get("api_key")
+            
+            if api_key:
+                # Show masked key
+                if isinstance(api_key, str) and api_key.startswith("..."):
+                    masked = api_key
+                elif isinstance(api_key, str) and len(api_key) > 4:
+                    masked = f"...{api_key[-4:]}"
+                else:
+                    masked = "****"
+                
+                status = "✅ Configured" if enabled else "⚠️ Configured but disabled"
+                output.append(f"  • {provider.replace('_', ' ').title()}: {masked} {status}")
+            else:
+                output.append(f"  • {provider.replace('_', ' ').title()}: ❌ Not configured")
+        
+        output.append("")
+        
+        # Cache configuration
+        cache_config = config.get("cache", {})
+        if cache_config:
+            output.append("💾 Cache Configuration:")
+            output.append("")
+            
+            memory_cache = cache_config.get("memory", {})
+            if memory_cache:
+                output.append(f"  Memory Cache:")
+                output.append(f"    • TTL: {memory_cache.get('ttl_seconds', 'N/A')} seconds")
+                output.append(f"    • Max Size: {memory_cache.get('max_size', 'N/A')} entries")
+            
+            disk_cache = cache_config.get("disk", {})
+            if disk_cache:
+                output.append(f"  Disk Cache:")
+                output.append(f"    • Enabled: {'Yes' if disk_cache.get('enabled', False) else 'No'}")
+                output.append(f"    • TTL: {disk_cache.get('ttl_seconds', 'N/A')} seconds")
+                output.append(f"    • Max Size: {disk_cache.get('max_size_mb', 'N/A')} MB")
+                output.append(f"    • Path: {disk_cache.get('path', 'N/A')}")
+            
+            output.append("")
+        
+        # Configuration sources info
+        output.append("ℹ️  Configuration Priority:")
+        output.append("  1. MCP tools (runtime configuration) - highest priority")
+        output.append("  2. Environment variables")
+        output.append("  3. YAML file (~/.iso_financial_mcp/config/datasources.yaml)")
+        output.append("  4. Default values - lowest priority")
+        output.append("")
+        
+        # Help text
+        output.append("💡 Tips:")
+        output.append("  • Use configure_api_key() to set API keys")
+        output.append("  • Use list_data_sources() to see available data sources")
+        output.append("  • API keys are persisted to YAML config for future sessions")
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        return f"❌ Error retrieving configuration: {str(e)}\n\n" \
+               f"This is unexpected. Please check the logs for more details."
+
+@server.tool
+async def list_data_sources() -> str:
+    """
+    List all available data sources with their status.
+    
+    This tool shows all data sources available in IsoFinancial-MCP, indicating which ones
+    are enabled, which require API keys, and which are ready to use.
+    
+    :return: List of data sources with status (enabled/disabled, requires_key)
+    
+    Example Usage:
+        # List all data sources
+        result = await list_data_sources()
+    
+    Note:
+        - Free sources (no API key required) are always available
+        - Optional sources require API key configuration
+        - Use configure_api_key() to enable optional sources
+    """
+    try:
+        # Check which API keys are configured
+        alpha_vantage_key = config_manager.get("alpha_vantage.api_key")
+        serpapi_key = config_manager.get("serpapi.api_key")
+        
+        sources = [
+            {
+                "name": "Yahoo Finance",
+                "enabled": True,
+                "requires_key": False,
+                "description": "Market data, prices, options, financials, holders",
+                "endpoints": "get_info, get_historical_prices, get_options, get_financials, etc."
+            },
+            {
+                "name": "SEC EDGAR",
+                "enabled": True,
+                "requires_key": False,
+                "description": "SEC filings (8-K, 10-Q, 10-K, S-3, 424B, etc.)",
+                "endpoints": "get_sec_filings"
+            },
+            {
+                "name": "FINRA",
+                "enabled": True,
+                "requires_key": False,
+                "description": "Daily short volume data with ratios and trends",
+                "endpoints": "get_finra_short_volume"
+            },
+            {
+                "name": "Google Trends (pytrends)",
+                "enabled": True,
+                "requires_key": False,
+                "description": "Search volume trends and momentum analysis",
+                "endpoints": "get_google_trends"
+            },
+            {
+                "name": "News (RSS Feeds)",
+                "enabled": True,
+                "requires_key": False,
+                "description": "Recent news headlines from multiple sources",
+                "endpoints": "get_news_headlines"
+            },
+            {
+                "name": "Earnings Calendar",
+                "enabled": True,
+                "requires_key": False,
+                "description": "Earnings dates, EPS estimates and actuals",
+                "endpoints": "get_earnings_calendar"
+            },
+            {
+                "name": "Alpha Vantage",
+                "enabled": alpha_vantage_key is not None,
+                "requires_key": True,
+                "description": "Additional earnings data and fundamentals",
+                "endpoints": "Used as fallback in earnings_source",
+                "signup_url": "https://www.alphavantage.co/support/#api-key"
+            },
+            {
+                "name": "SerpAPI",
+                "enabled": serpapi_key is not None,
+                "requires_key": True,
+                "description": "Google Trends fallback (when pytrends fails)",
+                "endpoints": "Used as fallback in trends_source",
+                "signup_url": "https://serpapi.com/users/sign_up"
+            }
+        ]
+        
+        output = ["📊 Available Data Sources", "=" * 70, ""]
+        
+        # Free sources
+        output.append("✅ FREE SOURCES (No API Key Required):")
+        output.append("")
+        
+        for source in sources:
+            if not source["requires_key"]:
+                status = "✅" if source["enabled"] else "❌"
+                output.append(f"{status} {source['name']}")
+                output.append(f"   {source['description']}")
+                output.append(f"   Endpoints: {source['endpoints']}")
+                output.append("")
+        
+        # Optional sources
+        output.append("🔑 OPTIONAL SOURCES (API Key Required):")
+        output.append("")
+        
+        for source in sources:
+            if source["requires_key"]:
+                if source["enabled"]:
+                    status = "✅ Configured"
+                else:
+                    status = "⚠️ Not configured"
+                
+                output.append(f"{status} {source['name']}")
+                output.append(f"   {source['description']}")
+                output.append(f"   Usage: {source['endpoints']}")
+                
+                if not source["enabled"] and "signup_url" in source:
+                    output.append(f"   Sign up: {source['signup_url']}")
+                    output.append(f"   Configure: configure_api_key('{source['name'].lower().replace(' ', '_')}', 'YOUR_KEY')")
+                
+                output.append("")
+        
+        # Meta-tools info
+        output.append("🎯 META-TOOLS (Consolidated Data Retrieval):")
+        output.append("")
+        output.append("  • get_ticker_complete_analysis(ticker)")
+        output.append("    Fetches ALL data for a single ticker in one call")
+        output.append("    Replaces 7+ individual tool calls")
+        output.append("")
+        output.append("  • get_multi_ticker_analysis(tickers)")
+        output.append("    Analyzes multiple tickers in parallel")
+        output.append("    Replaces 7+ calls per ticker")
+        output.append("")
+        output.append("  • analyze_sector_companies(sector_query)")
+        output.append("    Provides workflow guidance for sector analysis")
+        output.append("")
+        
+        # Help text
+        output.append("💡 Tips:")
+        output.append("  • All free sources are ready to use immediately")
+        output.append("  • Optional sources enhance data coverage but aren't required")
+        output.append("  • Use configure_api_key() to enable optional sources")
+        output.append("  • Use get_configuration() to view current settings")
+        output.append("  • Prefer meta-tools for efficient multi-source data retrieval")
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        return f"❌ Error listing data sources: {str(e)}\n\n" \
+               f"This is unexpected. Please check the logs for more details."
+
+# --- HEALTH CHECK TOOLS (MCP Health Monitoring) ---
+
+@server.tool
+async def get_health_status() -> str:
+    """
+    Get health status of all data sources.
+    
+    This tool provides a comprehensive health report for all data sources, including
+    success rates, latency metrics, recent errors, and overall status. Use this to
+    diagnose issues or verify that data sources are functioning properly.
+    
+    :return: Health status report for all sources with metrics and status indicators
+    
+    Example Usage:
+        # Check health of all data sources
+        result = await get_health_status()
+    
+    Status Indicators:
+        ✅ Healthy: Success rate >= 70%
+        ⚠️ Degraded: Success rate 30-70%
+        ❌ Unhealthy: Success rate < 30%
+        ❓ Unknown: No recent requests
+    
+    Metrics Included:
+        - Success rate (percentage of successful requests)
+        - Average latency (response time in milliseconds)
+        - Total requests (number of requests tracked)
+        - Last success (timestamp of last successful request)
+        - Recent errors (list of recent error types)
+    
+    Note:
+        Health metrics are tracked over a rolling window of recent requests.
+        Use test_data_source() to actively test a specific source.
+    """
+    try:
+        # Get or create health monitor from data manager
+        from .reliability.health_monitor import HealthMonitor
+        from .reliability.data_manager import DataManager
+        
+        # Use the global data manager instance
+        data_manager = DataManager()
+        health_monitor = data_manager.health_monitor
+        
+        # Get health status for all sources
+        all_status = health_monitor.get_all_health_status()
+        
+        if not all_status:
+            return "📊 No health data available yet.\n\n" \
+                   "Health metrics are collected as data sources are used.\n" \
+                   "Try fetching some data first, then check health status again.\n\n" \
+                   "You can also use test_data_source() to actively test a source."
+        
+        output = ["🏥 Data Sources Health Status", "=" * 70, ""]
+        
+        # Sort sources by status (unhealthy first, then degraded, then healthy)
+        status_priority = {"unhealthy": 0, "degraded": 1, "healthy": 2, "unknown": 3}
+        sorted_sources = sorted(
+            all_status.items(),
+            key=lambda x: (status_priority.get(x[1].status, 4), x[0])
+        )
+        
+        for source_name, status in sorted_sources:
+            # Status emoji
+            if status.status == "healthy":
+                emoji = "✅"
+            elif status.status == "degraded":
+                emoji = "⚠️"
+            elif status.status == "unhealthy":
+                emoji = "❌"
+            else:
+                emoji = "❓"
+            
+            output.append(f"{emoji} {source_name.upper()}")
+            output.append(f"   Status: {status.status.title()}")
+            output.append(f"   Success Rate: {status.success_rate * 100:.1f}%")
+            output.append(f"   Avg Latency: {status.avg_latency_ms}ms")
+            output.append(f"   Total Requests: {status.total_requests}")
+            
+            if status.last_success:
+                # Calculate time since last success
+                time_since = datetime.now() - status.last_success
+                if time_since.total_seconds() < 60:
+                    time_str = f"{int(time_since.total_seconds())}s ago"
+                elif time_since.total_seconds() < 3600:
+                    time_str = f"{int(time_since.total_seconds() / 60)}m ago"
+                elif time_since.total_seconds() < 86400:
+                    time_str = f"{int(time_since.total_seconds() / 3600)}h ago"
+                else:
+                    time_str = f"{int(time_since.total_seconds() / 86400)}d ago"
+                
+                output.append(f"   Last Success: {time_str}")
+            else:
+                output.append(f"   Last Success: Never")
+            
+            if status.recent_errors:
+                # Show up to 3 most recent errors
+                errors_display = status.recent_errors[:3]
+                output.append(f"   Recent Errors: {', '.join(errors_display)}")
+            
+            output.append("")
+        
+        # Add summary
+        healthy_count = sum(1 for _, s in all_status.items() if s.status == "healthy")
+        degraded_count = sum(1 for _, s in all_status.items() if s.status == "degraded")
+        unhealthy_count = sum(1 for _, s in all_status.items() if s.status == "unhealthy")
+        unknown_count = sum(1 for _, s in all_status.items() if s.status == "unknown")
+        
+        output.append("📈 SUMMARY")
+        output.append(f"   Total Sources: {len(all_status)}")
+        output.append(f"   ✅ Healthy: {healthy_count}")
+        output.append(f"   ⚠️ Degraded: {degraded_count}")
+        output.append(f"   ❌ Unhealthy: {unhealthy_count}")
+        output.append(f"   ❓ Unknown: {unknown_count}")
+        output.append("")
+        
+        # Add tips
+        output.append("💡 TIPS")
+        output.append("   • Use test_data_source() to actively test a specific source")
+        output.append("   • Degraded sources may still work but with reduced reliability")
+        output.append("   • Unhealthy sources will trigger automatic fallback to alternatives")
+        output.append("   • Health metrics are tracked over a rolling window of recent requests")
+        
+        return "\n".join(output)
+        
+    except Exception as e:
+        return f"❌ Error retrieving health status: {str(e)}\n\n" \
+               f"This is unexpected. Please check the logs for more details."
+
+@server.tool
+async def test_data_source(source_name: str, ticker: str = "AAPL") -> str:
+    """
+    Test a specific data source with a sample request.
+    
+    This tool actively tests a data source by making a real request and measuring
+    the response time and success. Use this to diagnose issues with specific sources
+    or verify that a source is working correctly.
+    
+    :param source_name: Name of the source to test (sec, trends, earnings, finra, news, yfinance)
+    :param ticker: Ticker symbol to test with (default: AAPL)
+    :return: Test result with timing, success status, error details, and data preview
+    
+    Example Usage:
+        # Test SEC filings source
+        result = await test_data_source("sec", "AAPL")
+        
+        # Test Google Trends source
+        result = await test_data_source("trends", "NVDA")
+        
+        # Test earnings calendar
+        result = await test_data_source("earnings", "MSFT")
+    
+    Supported Sources:
+        - sec: SEC EDGAR filings
+        - trends: Google Trends search volume
+        - earnings: Earnings calendar
+        - finra: FINRA short volume
+        - news: News headlines
+        - yfinance: Yahoo Finance data
+    
+    Note:
+        This tool makes a real request to the data source, so it will consume
+        API rate limits and may take a few seconds to complete.
+    """
+    import time
+    
+    # Normalize source name
+    source_name = source_name.lower().strip()
+    ticker = ticker.upper().strip()
+    
+    # Validate source name
+    valid_sources = ["sec", "trends", "earnings", "finra", "news", "yfinance"]
+    if source_name not in valid_sources:
+        return f"❌ Invalid source name: {source_name}\n\n" \
+               f"Valid sources: {', '.join(valid_sources)}\n\n" \
+               f"Example: test_data_source('sec', 'AAPL')"
+    
+    output = [f"🧪 Testing {source_name.upper()} with ticker {ticker}...", ""]
+    
+    start_time = time.time()
+    
+    try:
+        # Route to appropriate source
+        if source_name == "sec":
+            result = await sec_source.get_sec_filings(ticker, ["8-K"], 30)
+            preview = f"Found {len(result)} filings" if result else "No filings found"
+            if result and len(result) > 0:
+                preview += f"\nMost recent: {result[0].get('form', 'N/A')} on {result[0].get('date', 'N/A')}"
+        
+        elif source_name == "trends":
+            result = await trends_source.get_google_trends(ticker, 30)
+            if result.get("error"):
+                raise Exception(result["error"])
+            preview = f"Latest search volume: {result.get('latest', 0)}"
+            preview += f"\nTrend: {result.get('trend', 'unknown').replace('_', ' ').title()}"
+        
+        elif source_name == "earnings":
+            result = await earnings_source.get_earnings_calendar(ticker)
+            preview = f"Found {len(result)} earnings records" if result else "No earnings data found"
+            if result and len(result) > 0:
+                upcoming = [e for e in result if e.get('date', '') >= datetime.now().strftime('%Y-%m-%d')]
+                preview += f"\nUpcoming earnings: {len(upcoming)}"
+        
+        elif source_name == "finra":
+            result = await finra_source.get_finra_short_volume(ticker, None, None)
+            preview = f"Found {len(result)} days of short volume data" if result else "No short volume data found"
+            if result and len(result) > 0:
+                latest = result[0]
+                preview += f"\nLatest short ratio: {latest.get('short_ratio', 0):.2%}"
+        
+        elif source_name == "news":
+            result = await news_source.get_news_headlines(ticker, 5, 3)
+            preview = f"Found {len(result)} news articles" if result else "No news found"
+            if result and len(result) > 0:
+                preview += f"\nMost recent: {result[0].get('title', 'N/A')[:60]}..."
+        
+        elif source_name == "yfinance":
+            result = await yfinance_source.get_info(ticker)
+            preview = f"Company: {result.get('longName', 'N/A')}" if result else "No info found"
+            if result:
+                preview += f"\nSector: {result.get('sector', 'N/A')}"
+                preview += f"\nMarket Cap: ${result.get('marketCap', 0):,.0f}" if result.get('marketCap') else ""
+        
+        else:
+            return f"❌ Source '{source_name}' not implemented yet."
+        
+        elapsed = time.time() - start_time
+        
+        output.append(f"✅ Test successful!")
+        output.append(f"⏱️  Response time: {elapsed:.2f}s")
+        output.append("")
+        output.append(f"📊 Data preview:")
+        output.append(preview)
+        output.append("")
+        
+        # Add interpretation
+        output.append("💡 Interpretation:")
+        if elapsed < 1.0:
+            output.append("   • Excellent response time (< 1s)")
+        elif elapsed < 3.0:
+            output.append("   • Good response time (1-3s)")
+        elif elapsed < 5.0:
+            output.append("   • Acceptable response time (3-5s)")
+        else:
+            output.append("   • Slow response time (> 5s) - may indicate issues")
+        
+        if result:
+            output.append("   • Data source is functioning correctly")
+        else:
+            output.append("   • No data returned - may be normal for this ticker/timeframe")
+        
+    except Exception as e:
+        elapsed = time.time() - start_time
+        output.append(f"❌ Test failed!")
+        output.append(f"⏱️  Time to failure: {elapsed:.2f}s")
+        output.append("")
+        output.append(f"🔴 Error: {str(e)}")
+        output.append("")
+        
+        # Add troubleshooting tips
+        output.append("🔧 Troubleshooting:")
+        output.append("   • Verify the ticker symbol is correct")
+        output.append("   • Check if the data source requires an API key")
+        output.append("   • Try again in a few moments (may be rate limited)")
+        output.append("   • Check network connectivity")
+        output.append("   • Use get_health_status() to see overall source health")
+    
+    return "\n".join(output)
 
 # --- LEGACY TOOLS (Individual Data Sources) ---
 # Note: These tools are maintained for backward compatibility.
@@ -766,14 +1346,28 @@ async def get_google_trends(
 # The server object is now ready and has the tools registered via the decorator.
 
 if __name__ == "__main__":
-    print("🚀 Starting Enhanced IsoFinancial-MCP Server")
-    print("✅ Core Yahoo Finance endpoints: info, prices, options, financials, holders")
-    print("🆕 NEW Enhanced endpoints for Wasaphi-Alpha-Scanner:")
-    print("   📋 SEC Filings (get_sec_filings) - EDGAR API with 6h caching")
-    print("   📊 FINRA Short Volume (get_finra_short_volume) - Daily short ratios with 24h caching")
-    print("   📅 Earnings Calendar (get_earnings_calendar) - EPS estimates & actuals with 24h caching")
-    print("   📰 News Headlines (get_news_headlines) - RSS feeds with 2h caching")
-    print("   📈 Google Trends (get_google_trends) - Search volume analysis with 24h caching")
-    print("🔧 All endpoints include rate limiting, error handling, and graceful degradation")
+    from . import __version__
+    
+    # Display welcome message
+    print("=" * 70)
+    print(f"🚀 IsoFinancial-MCP Server v{__version__}")
+    print("=" * 70)
+    print("")
+    print("📊 AVAILABLE DATA SOURCES:")
+    print("  ✅ Yahoo Finance - Market data, prices, options, financials")
+    print("  ✅ SEC EDGAR - SEC filings (8-K, 10-Q, 10-K, S-3, 424B)")
+    print("  ✅ FINRA - Daily short volume data with ratios")
+    print("  ✅ Google Trends - Search volume analysis")
+    print("  ✅ News (RSS) - Recent headlines from multiple sources")
+    print("  ✅ Earnings Calendar - EPS estimates and actuals")
+    print("")
+    print("🎯 META-TOOLS: get_ticker_complete_analysis(), get_multi_ticker_analysis()")
+    print("⚙️  CONFIGURATION: configure_api_key(), list_data_sources(), get_health_status()")
+    print("")
+    print("📖 Documentation: https://github.com/Niels-8/isofinancial-mcp")
+    print("=" * 70)
+    print("")
+    print("📡 Server ready for MCP connections...")
+    print("")
     
     server.run() 

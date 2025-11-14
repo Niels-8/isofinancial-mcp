@@ -175,13 +175,31 @@ async def generate_newsletter(tickers: list):
     return analysis
 ```
 
-### Migration Guide
+### Migration from Individual Tools
 
-Migrating from individual tools to meta-tools is straightforward. See our [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for:
-- Detailed before/after examples
-- Step-by-step migration instructions
-- Performance benchmarks
-- Best practices for agent optimization
+Migrating from individual tools to meta-tools is straightforward:
+
+**Before (Individual Tools):**
+```python
+# Multiple separate calls
+info = await get_info("AAPL")
+prices = await get_historical_prices("AAPL")
+news = await get_news_headlines("AAPL")
+# ... 7+ more calls
+```
+
+**After (Meta-Tools):**
+```python
+# Single consolidated call
+analysis = await get_ticker_complete_analysis("AAPL")
+# All data retrieved in parallel
+```
+
+**Best Practices:**
+- Use `get_ticker_complete_analysis` for single ticker deep dives
+- Use `get_multi_ticker_analysis` for comparing multiple tickers
+- Set `include_options=False` to reduce token usage if options data not needed
+- Adjust `lookback_days` based on your analysis needs (default: 30)
 
 **Note**: All individual tools remain available for backward compatibility, but meta-tools are strongly recommended for agent-based workflows.
 
@@ -844,13 +862,97 @@ agent.add_financial_data_source("iso-financial-mcp")
 ## 📊 Data Sources & Reliability
 
 ### Data Source Overview
-| Data Source | Endpoint | Update Frequency | Cache TTL | Reliability |
-|-------------|----------|------------------|-----------|-------------|
-| Yahoo Finance | Market data, financials, options | Real-time to daily | 5min-24h | High |
-| SEC EDGAR | Official filings | Real-time | 6 hours | Very High |
-| FINRA | Short volume | Daily | 24 hours | High |
-| Google Trends | Search volume | Daily | 24 hours | Medium |
-| RSS Feeds | News headlines | Hourly | 2 hours | Medium |
+| Data Source | Endpoint | Update Frequency | Cache TTL | Fallback Sources | Reliability |
+|-------------|----------|------------------|-----------|------------------|-------------|
+| Yahoo Finance | Market data, financials, options | Real-time to daily | 5min-24h | N/A | High |
+| SEC EDGAR | Official filings | Real-time | 6 hours | RSS Feed, XBRL API | Very High |
+| FINRA | Short volume | Daily | 24 hours | N/A | High |
+| Google Trends | Search volume | Daily | 24 hours | Proxy, SerpAPI | Medium |
+| Earnings | Calendar data | Daily | 24 hours | Nasdaq, Alpha Vantage | High |
+| RSS Feeds | News headlines | Hourly | 2 hours | N/A | Medium |
+
+### 🛡️ Reliability Features (v0.4.0+)
+
+#### Multi-Source Fallback
+Automatic fallback to alternative data sources when primary sources fail:
+
+- **SEC Filings**: EDGAR API → RSS Feed → XBRL API → Stale Cache
+- **Google Trends**: Direct → Proxy → SerpAPI → Stale Cache
+- **Earnings**: Yahoo Finance → Nasdaq API → Alpha Vantage → Estimation
+
+#### Intelligent Caching
+Two-level caching system with stale data fallback:
+
+- **Memory Cache**: Fast in-memory cache (1 hour TTL, 1000 items)
+- **Disk Cache**: Persistent disk cache (7 days TTL, 500MB max)
+- **Stale Fallback**: Returns expired cache when all sources fail
+- **Automatic Cleanup**: Old cache entries are automatically purged
+
+#### Adaptive Rate Limiting
+Smart rate limiting that adjusts to API behavior:
+
+- **Error Detection**: Monitors 429 rate limit errors
+- **Exponential Backoff**: 10s → 20s → 40s delays with jitter
+- **Slow Mode**: Automatically activates when error rate >50%
+- **Per-Source Limits**: Independent rate limiting for each API
+
+#### Health Monitoring
+Continuous monitoring of data source reliability:
+
+- **Success Rate Tracking**: Monitors last 100 requests per source
+- **Automatic Failover**: Skips sources with <30% success rate
+- **Metrics Logging**: JSONL logs for debugging and analysis
+- **Health Status API**: Query source health programmatically
+
+#### Graceful Degradation
+System continues working even when sources fail:
+
+- **Partial Data**: Returns available data with error details
+- **Error Classification**: Distinguishes temporary vs permanent errors
+- **Actionable Messages**: Suggests fixes for common issues
+- **No Silent Failures**: All errors are logged and reported
+
+### Configuration
+
+#### Default Configuration (No Setup Required)
+The system works out-of-the-box with sensible defaults. No configuration needed!
+
+#### Custom Configuration (Optional)
+For advanced users, create `~/.iso_financial_mcp/config/datasources.yaml`:
+
+```yaml
+# Example: Adjust rate limiting for Google Trends
+trends:
+  sources:
+    - name: pytrends_direct
+      enabled: true
+      rate_limit: 0.1  # Slower: 1 req / 10 sec
+  
+  adaptive_rate_limit:
+    enabled: true
+    error_threshold: 0.5
+    slow_mode_delay: 10
+
+# Example: Enable optional sources with API keys
+earnings:
+  sources:
+    - name: alpha_vantage
+      enabled: true
+      api_key_env: ALPHA_VANTAGE_KEY  # Set via environment variable
+```
+
+See `config/datasources.yaml.example` for full configuration options.
+
+#### Environment Variables
+Optional API keys for enhanced data sources:
+
+```bash
+# Alpha Vantage (for additional earnings data)
+export ALPHA_VANTAGE_KEY="your_key_here"
+
+# SerpAPI (for Google Trends fallback)
+export SERPAPI_KEY="your_key_here"
+```
 
 ### Data Quality Features
 - **Duplicate Detection**: News headlines are deduplicated across sources
@@ -858,6 +960,188 @@ agent.add_financial_data_source("iso-financial-mcp")
 - **Error Recovery**: Graceful fallback when data sources are unavailable
 - **Cache Warming**: Frequently accessed data is pre-cached
 - **Rate Limiting**: Respects API provider limits to ensure consistent access
+- **Data Fusion**: Merges data from multiple sources for better coverage
+- **Automatic Retry**: Intelligent retry with exponential backoff
+
+---
+
+## 🔧 MCP Configuration Tools
+
+**NEW in v0.4.0**: Configure the server directly through MCP tools without editing configuration files.
+
+### Available Configuration Tools
+
+#### `configure_api_key`
+Configure API keys for optional data sources at runtime.
+
+```python
+# Configure Alpha Vantage for enhanced earnings data
+await configure_api_key("alpha_vantage", "YOUR_API_KEY_HERE")
+
+# Configure SerpAPI for Google Trends fallback
+await configure_api_key("serpapi", "YOUR_API_KEY_HERE")
+```
+
+**Features:**
+- Validates API keys before saving
+- Persists configuration for future sessions
+- Provides clear success/error messages
+- Supports: `alpha_vantage`, `serpapi`
+
+#### `get_configuration`
+View current configuration with masked API keys.
+
+```python
+# Get current configuration
+await get_configuration()
+```
+
+**Returns:**
+- API keys (masked for security: `...XXXX`)
+- Cache settings (TTL, max size)
+- Rate limit configuration
+- Enabled data sources
+
+#### `list_data_sources`
+List all available data sources and their status.
+
+```python
+# List all data sources
+await list_data_sources()
+```
+
+**Shows:**
+- ✅ Enabled sources (no API key required)
+- ⚠️ Disabled sources (API key required but not configured)
+- Source descriptions and capabilities
+
+### Configuration Methods
+
+The server supports three configuration methods with priority order:
+
+1. **MCP Tools** (Highest Priority) - Runtime configuration via `configure_api_key`
+2. **Environment Variables** - Set `ALPHA_VANTAGE_KEY`, `SERPAPI_KEY`, etc.
+3. **YAML File** (Lowest Priority) - `~/.iso_financial_mcp/config/datasources.yaml`
+
+See [Configuration Guide](docs/CONFIGURATION.md) for detailed examples.
+
+---
+
+## 🏥 MCP Health Check Tools
+
+**NEW in v0.4.0**: Monitor data source health and diagnose issues through MCP tools.
+
+### Available Health Check Tools
+
+#### `get_health_status`
+Get comprehensive health status for all data sources.
+
+```python
+# Check health of all sources
+await get_health_status()
+```
+
+**Returns for each source:**
+- ✅ Status: healthy / ⚠️ degraded / ❌ unhealthy
+- Success rate (last 100 requests)
+- Average latency (milliseconds)
+- Total requests processed
+- Last successful request timestamp
+- Recent error messages (if any)
+
+**Example Output:**
+```
+🏥 Data Sources Health Status:
+
+✅ Yahoo Finance
+   Status: healthy
+   Success Rate: 98.5%
+   Avg Latency: 245ms
+   Total Requests: 1,234
+   Last Success: 2025-01-15 14:32:10
+
+⚠️ Google Trends
+   Status: degraded
+   Success Rate: 65.2%
+   Avg Latency: 1,850ms
+   Total Requests: 456
+   Recent Errors: Rate limit exceeded, Timeout
+```
+
+#### `test_data_source`
+Test a specific data source with a sample request.
+
+```python
+# Test SEC filings source
+await test_data_source("sec", "AAPL")
+
+# Test Google Trends source
+await test_data_source("trends", "Tesla")
+
+# Test earnings calendar
+await test_data_source("earnings", "NVDA")
+```
+
+**Features:**
+- Measures response time
+- Shows data preview (first 500 chars)
+- Provides detailed error messages
+- Tests with real API calls
+
+**Supported Sources:**
+- `sec` - SEC EDGAR filings
+- `trends` - Google Trends
+- `earnings` - Earnings calendar
+- `finra` - FINRA short volume
+- `news` - News headlines
+
+**Example Output:**
+```
+🧪 Testing sec with ticker AAPL...
+
+✅ Test successful!
+⏱️  Response time: 1.23s
+📊 Data preview:
+SEC Filings for AAPL (Last 30 days)
+Found 3 filings:
+1. 8-K - 2025-01-10 - Material Event...
+```
+
+### Use Cases
+
+**Troubleshooting:**
+```python
+# Check if a source is having issues
+status = await get_health_status()
+
+# Test specific source that's failing
+result = await test_data_source("trends", "AAPL")
+```
+
+**Monitoring:**
+```python
+# Regular health checks in production
+status = await get_health_status()
+# Alert if any source has <80% success rate
+```
+
+**Validation:**
+```python
+# Verify API key configuration
+await configure_api_key("alpha_vantage", "YOUR_KEY")
+await test_data_source("earnings", "AAPL")
+```
+
+---
+
+## 📚 Documentation
+
+For detailed information about the system, see our comprehensive documentation:
+
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - System design, components, and data flow
+- **[Configuration Guide](docs/CONFIGURATION.md)** - How to configure API keys, caching, and rate limits
+- **[Reliability Features](docs/RELIABILITY.md)** - Multi-source fallback, health monitoring, and error handling
+- **[Changelog](CHANGELOG.md)** - Version history and release notes
 
 ---
 

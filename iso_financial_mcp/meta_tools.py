@@ -19,8 +19,55 @@ from .datasources import earnings_source
 from .datasources import finra_source
 from .datasources import trends_source
 
+# Import reliability components
+from .reliability.data_manager import DataManager
+from .reliability.models import DataResult
+
+# Import source managers
+from .datasources.sec_source_manager import SECSourceManager
+from .datasources.trends_source_manager import TrendsSourceManager
+from .datasources.earnings_source_manager import EarningsSourceManager
+
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Initialize global instances for reuse
+_data_manager = None
+_sec_manager = None
+_trends_manager = None
+_earnings_manager = None
+
+
+def _get_data_manager() -> DataManager:
+    """Get or create global DataManager instance."""
+    global _data_manager
+    if _data_manager is None:
+        _data_manager = DataManager()
+    return _data_manager
+
+
+def _get_sec_manager() -> SECSourceManager:
+    """Get or create global SECSourceManager instance."""
+    global _sec_manager
+    if _sec_manager is None:
+        _sec_manager = SECSourceManager(data_manager=_get_data_manager())
+    return _sec_manager
+
+
+def _get_trends_manager() -> TrendsSourceManager:
+    """Get or create global TrendsSourceManager instance."""
+    global _trends_manager
+    if _trends_manager is None:
+        _trends_manager = TrendsSourceManager()
+    return _trends_manager
+
+
+def _get_earnings_manager() -> EarningsSourceManager:
+    """Get or create global EarningsSourceManager instance."""
+    global _earnings_manager
+    if _earnings_manager is None:
+        _earnings_manager = EarningsSourceManager(data_manager=_get_data_manager())
+    return _earnings_manager
 
 
 def truncate_string(text: str, max_length: int = 500) -> str:
@@ -103,7 +150,8 @@ async def get_financial_snapshot(
     
     This meta-tool consolidates data from multiple sources (yfinance, news, SEC,
     earnings, FINRA, Google Trends) and retrieves them in parallel using asyncio.gather
-    for maximum efficiency.
+    for maximum efficiency. Now uses the new reliability infrastructure with automatic
+    fallback, caching, and health monitoring.
     
     Args:
         ticker: Stock ticker symbol (e.g., 'AAPL')
@@ -119,13 +167,18 @@ async def get_financial_snapshot(
                 "info": {...},
                 "prices": {...},
                 "news": [...],
-                "sec_filings": [...],
-                "earnings": {...},
+                "sec_filings": {...},  # Now includes source metadata
+                "earnings": {...},     # Now includes source metadata
                 "short_volume": {...},
-                "google_trends": {...},
+                "google_trends": {...}, # Now includes source metadata
                 "options": {...}  # optional
             },
-            "errors": []  # List of partial errors if any source fails
+            "errors": [],  # List of partial errors if any source fails
+            "metadata": {  # New: metadata about data sources
+                "sec_filings": {...},
+                "earnings": {...},
+                "google_trends": {...}
+            }
         }
     
     Example:
@@ -138,15 +191,21 @@ async def get_financial_snapshot(
         "ticker": ticker.upper(),
         "timestamp": datetime.now().isoformat(),
         "data": {},
-        "errors": []
+        "errors": [],
+        "metadata": {}  # New: store metadata about sources
     }
     
     try:
+        # Get manager instances
+        sec_manager = _get_sec_manager()
+        trends_manager = _get_trends_manager()
+        earnings_manager = _get_earnings_manager()
+        
         # Create tasks for parallel execution
         tasks = []
         task_names = []
         
-        # Task 1: Company info
+        # Task 1: Company info (still using direct yfinance)
         tasks.append(yfinance_source.get_info(ticker))
         task_names.append("info")
         
@@ -167,16 +226,16 @@ async def get_financial_snapshot(
         tasks.append(yfinance_source.get_historical_prices(ticker, period=period))
         task_names.append("prices")
         
-        # Task 3: News headlines
+        # Task 3: News headlines (still using direct source)
         tasks.append(news_source.get_news_headlines(ticker, limit=5, lookback_days=lookback_days))
         task_names.append("news")
         
-        # Task 4: SEC filings
-        tasks.append(sec_source.get_sec_filings(ticker, ["8-K", "10-Q", "10-K"], lookback_days=lookback_days))
+        # Task 4: SEC filings (NOW USING SOURCE MANAGER)
+        tasks.append(sec_manager.fetch_filings(ticker, ["8-K", "10-Q", "10-K"], lookback_days=lookback_days))
         task_names.append("sec_filings")
         
-        # Task 5: Earnings calendar
-        tasks.append(earnings_source.get_earnings_calendar(ticker))
+        # Task 5: Earnings calendar (NOW USING SOURCE MANAGER)
+        tasks.append(earnings_manager.fetch_earnings(ticker))
         task_names.append("earnings")
         
         # Task 6: FINRA short volume (uses start_date/end_date, not lookback_days)
@@ -185,8 +244,8 @@ async def get_financial_snapshot(
         tasks.append(finra_source.get_finra_short_volume(ticker, start_date=start_date, end_date=end_date))
         task_names.append("short_volume")
         
-        # Task 7: Google Trends
-        tasks.append(trends_source.get_google_trends(ticker, window_days=lookback_days))
+        # Task 7: Google Trends (NOW USING SOURCE MANAGER)
+        tasks.append(trends_manager.fetch_trends(ticker, window_days=lookback_days))
         task_names.append("google_trends")
         
         # Task 8: Options data (optional)
@@ -200,21 +259,81 @@ async def get_financial_snapshot(
         
         # Process results with graceful degradation
         for task_name, result in zip(task_names, results):
-            if isinstance(result, Exception):
+            # Check if result is a DataResult from source managers
+            if isinstance(result, DataResult):
+                # Extract data and metadata from DataResult
+                if result.data is not None:
+                    # Success - format and store data compactly
+                    snapshot["data"][task_name] = _format_data_compact(task_name, result.data, lookback_days)
+                    
+                    # Store metadata about the source
+                    snapshot["metadata"][task_name] = {
+                        "source_used": result.source_used,
+                        "is_cached": result.is_cached,
+                        "cache_age_seconds": result.cache_age_seconds,
+                        "is_stale": result.is_stale,
+                        "attempted_sources": result.attempted_sources,
+                        "successful_sources": result.successful_sources,
+                        "failed_sources": result.failed_sources,
+                        "partial_data": result.partial_data,
+                        "last_successful_update": result.last_successful_update.isoformat() if result.last_successful_update else None
+                    }
+                    
+                    logger.debug(
+                        f"Successfully fetched {task_name} for {ticker} from {result.source_used} "
+                        f"(cached: {result.is_cached}, stale: {result.is_stale})"
+                    )
+                    
+                    # Add errors from DataResult if any
+                    for error_info in result.errors:
+                        error_msg = (
+                            f"{task_name} ({error_info.source}): {error_info.error_message} "
+                            f"[{error_info.suggested_action}]"
+                        )
+                        snapshot["errors"].append(error_msg)
+                else:
+                    # No data available
+                    error_msg = f"{task_name}: No data available from any source"
+                    snapshot["errors"].append(error_msg)
+                    
+                    # Still store metadata about the attempt
+                    snapshot["metadata"][task_name] = {
+                        "source_used": "none",
+                        "attempted_sources": result.attempted_sources,
+                        "failed_sources": result.failed_sources,
+                        "errors": [
+                            {
+                                "source": err.source,
+                                "type": err.error_type,
+                                "message": err.error_message,
+                                "suggested_action": err.suggested_action
+                            }
+                            for err in result.errors
+                        ]
+                    }
+                    
+                    logger.warning(f"No data available for {task_name} for {ticker}")
+            
+            elif isinstance(result, Exception):
                 # Log error and continue with other sources
                 error_msg = f"{task_name}: {type(result).__name__} - {str(result)}"
                 snapshot["errors"].append(error_msg)
                 logger.warning(f"Error fetching {task_name} for {ticker}: {result}")
+            
             elif result is None or (isinstance(result, (list, dict)) and not result):
-                # Empty result
+                # Empty result from direct sources
                 snapshot["errors"].append(f"{task_name}: No data available")
                 logger.info(f"No data available for {task_name} for {ticker}")
+            
             else:
-                # Success - format and store data compactly
+                # Success from direct sources - format and store data compactly
                 snapshot["data"][task_name] = _format_data_compact(task_name, result, lookback_days)
                 logger.debug(f"Successfully fetched {task_name} for {ticker}")
         
-        logger.info(f"Snapshot complete for {ticker}: {len(snapshot['data'])} sources, {len(snapshot['errors'])} errors")
+        logger.info(
+            f"Snapshot complete for {ticker}: {len(snapshot['data'])} sources, "
+            f"{len(snapshot['errors'])} errors"
+        )
         
     except Exception as e:
         # Catch-all for unexpected errors
@@ -346,6 +465,7 @@ def format_snapshot_for_llm(snapshot: Dict[str, Any]) -> str:
     
     This function converts the structured snapshot data into a human-readable
     text format with clear sections, truncated content, and error indicators.
+    Now includes source metadata, cache status, and fallback information.
     Optimized to save 50-70% tokens compared to raw JSON format.
     
     Args:
@@ -367,10 +487,40 @@ def format_snapshot_for_llm(snapshot: Dict[str, Any]) -> str:
     timestamp = snapshot.get("timestamp", "")
     data = snapshot.get("data", {})
     errors = snapshot.get("errors", [])
+    metadata = snapshot.get("metadata", {})
     
     # Header
     lines.append(f"=== FINANCIAL SNAPSHOT: {ticker} ===")
     lines.append(f"Timestamp: {timestamp}")
+    
+    # Data source summary (if metadata available)
+    if metadata:
+        lines.append("")
+        lines.append("--- DATA SOURCES ---")
+        for data_type, meta in metadata.items():
+            source_used = meta.get("source_used", "unknown")
+            is_cached = meta.get("is_cached", False)
+            is_stale = meta.get("is_stale", False)
+            cache_age = meta.get("cache_age_seconds")
+            
+            # Format cache status
+            if is_cached:
+                if is_stale:
+                    cache_status = f"⚠️ STALE CACHE (age: {cache_age}s)"
+                else:
+                    cache_status = f"✓ CACHED (age: {cache_age}s)"
+            else:
+                cache_status = "✓ FRESH"
+            
+            lines.append(f"{data_type}: {source_used} [{cache_status}]")
+            
+            # Show fallback info if multiple sources were attempted
+            attempted = meta.get("attempted_sources", [])
+            if len(attempted) > 1:
+                failed = meta.get("failed_sources", [])
+                if failed:
+                    lines.append(f"  └─ Fallback used (failed: {', '.join(failed)})")
+    
     lines.append("")
     
     # Section 1: Company Info
@@ -564,6 +714,31 @@ def format_snapshot_for_llm(snapshot: Dict[str, Any]) -> str:
             lines.append(f"  • {error}")
         if len(errors) > 5:
             lines.append(f"  ... and {len(errors) - 5} more errors")
+        lines.append("")
+    
+    # Detailed error information from metadata (if available)
+    detailed_errors = []
+    for data_type, meta in metadata.items():
+        if "errors" in meta and meta["errors"]:
+            for err in meta["errors"]:
+                detailed_errors.append({
+                    "data_type": data_type,
+                    "source": err.get("source", "unknown"),
+                    "type": err.get("type", "unknown"),
+                    "message": err.get("message", ""),
+                    "action": err.get("suggested_action", "")
+                })
+    
+    if detailed_errors:
+        lines.append("--- DETAILED ERROR INFORMATION ---")
+        for i, err in enumerate(detailed_errors[:3], 1):  # Show max 3 detailed errors
+            lines.append(f"{i}. {err['data_type']} - {err['source']}")
+            lines.append(f"   Type: {err['type']}")
+            lines.append(f"   Message: {err['message']}")
+            lines.append(f"   💡 Suggested Action: {err['action']}")
+        
+        if len(detailed_errors) > 3:
+            lines.append(f"   ... and {len(detailed_errors) - 3} more detailed errors")
         lines.append("")
     
     return "\n".join(lines)

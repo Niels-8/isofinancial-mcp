@@ -7,22 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] - 2025-11-14
-
 ### Added
-- **MCP Configuration Tools**:
-  - `configure_api_key`: Configure API keys at runtime via MCP tools
-  - `get_configuration`: View current configuration with masked secrets
-  - `list_data_sources`: List all data sources and their status
-  - Multi-method configuration support (MCP tools > env vars > YAML > defaults)
-  - API key validation with clear error messages
-  - Persistent configuration storage
-- **MCP Health Check Tools**:
-  - `get_health_status`: Comprehensive health status for all data sources
-  - `test_data_source`: Test specific sources with sample requests
-  - Real-time success rate tracking
-  - Latency monitoring
-  - Recent error reporting
 - **Data Reliability Improvements**:
   - Multi-source fallback for SEC filings (EDGAR API → RSS Feed → XBRL API)
   - Multi-source fallback for Google Trends (Direct → Proxy → SerpAPI)
@@ -34,7 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Error classification (temporary vs permanent)
   - Actionable error messages with suggested fixes
 - **Configuration System**:
-  - ConfigurationManager with multi-source priority handling
   - YAML-based configuration with sensible defaults
   - Environment variable substitution for API keys
   - Per-source configuration (timeout, retries, rate limits)
@@ -45,25 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - TrendsSourceManager with exponential backoff retry
   - EarningsSourceManager with data fusion and deduplication
 - **Documentation**:
-  - docs/ARCHITECTURE.md: System design and components
-  - docs/CONFIGURATION.md: Complete configuration guide
-  - docs/RELIABILITY.md: Comprehensive reliability guide
-  - Updated README.md with MCP tools documentation
+  - RELIABILITY.md: Comprehensive reliability guide
+  - Updated MIGRATION_GUIDE.md with v0.4.0 migration instructions
+  - Updated README.md with reliability features
   - Configuration examples in config/datasources.yaml.example
 
 ### Changed
-- Refactored datasources structure (removed duplicate files)
-- Moved all documentation to docs/ directory
 - ConfigLoader now validates configuration and provides fallback defaults
 - Health metrics logged to ~/.iso_financial_mcp/health_metrics.jsonl
 - Cache location standardized to ~/.iso_financial_mcp/cache/
 - Improved error messages with source information and retry suggestions
-- Welcome message now shows "IsoFinancial-MCP" instead of "FastMCP"
-
-### Fixed
-- CHANGELOG dates corrected based on Git history
-- Removed duplicate earnings_sources.py and trends_sources.py files
-- All imports updated to use consolidated source managers
 
 ### Performance
 - **99%+ availability** even with source failures
@@ -71,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **98% success rate** (up from ~85%) with multi-source fallback
 - **Automatic recovery** from rate limiting and temporary failures
 
-## [0.3.0] - 2025-10-15
+## [0.3.0] - 2025-01-15
 
 ### Added
 - **Meta-tools for consolidated data retrieval**:
@@ -111,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Meta-tools are recommended for new implementations
   - See MIGRATION_GUIDE.md for migration examples
 
-## [0.2.2] - 2025-09-23
+## [0.2.2] - 2024-12-15
 
 ### Added
 - Google Trends integration with search volume analysis
@@ -129,7 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved trend data formatting
 - Enhanced documentation for trends endpoints
 
-## [0.2.1] - 2025-09-17
+## [0.2.1] - 2024-12-01
 
 ### Added
 - News headlines integration via Yahoo Finance RSS feeds
@@ -147,7 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced error messages for RSS feed failures
 - Updated feedparser dependency
 
-## [0.2.0] - 2025-08-20
+## [0.2.0] - 2024-11-15
 
 ### Added
 - **Enhanced data sources for quantitative analysis**:
@@ -174,7 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized cache lookup performance
 - Reduced memory usage for large datasets
 
-## [0.1.5] - 2025-08-05
+## [0.1.5] - 2024-10-20
 
 ### Added
 - Options analysis endpoints (expirations, option chains)
@@ -191,7 +166,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced holder information formatting
 - Updated yfinance dependency to 0.2.28+
 
-## [0.1.0] - 2025-07-30
+## [0.1.0] - 2024-09-15
 
 ### Added
 - Initial release with core Yahoo Finance integration
@@ -231,12 +206,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Release Date | Key Features | Performance Impact |
 |---------|--------------|--------------|-------------------|
-| 0.3.0 | 2025-10-15 | Meta-tools, token optimization | 5-10x faster, 70% token reduction |
-| 0.2.2 | 2025-09-23 | Google Trends integration | Improved trend analysis |
-| 0.2.1 | 2025-09-17 | News headlines RSS feeds | Enhanced sentiment analysis |
-| 0.2.0 | 2025-08-20 | SEC, FINRA, Earnings data | Quantitative analysis support |
-| 0.1.5 | 2025-08-05 | Options, holders, recommendations | Options analysis capability |
-| 0.1.0 | 2025-07-30 | Initial release | Core functionality |
+| 0.3.0 | 2025-01-15 | Meta-tools, token optimization | 5-10x faster, 70% token reduction |
+| 0.2.2 | 2024-12-15 | Google Trends integration | Improved trend analysis |
+| 0.2.1 | 2024-12-01 | News headlines RSS feeds | Enhanced sentiment analysis |
+| 0.2.0 | 2024-11-15 | SEC, FINRA, Earnings data | Quantitative analysis support |
+| 0.1.5 | 2024-10-20 | Options, holders, recommendations | Options analysis capability |
+| 0.1.0 | 2024-09-15 | Initial release | Core functionality |
 
 ## Migration Notes
 
