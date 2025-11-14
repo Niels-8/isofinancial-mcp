@@ -39,7 +39,12 @@ async def get_google_trends(
     window_days: int = 30
 ) -> Dict[str, Any]:
     """
-    Retrieve Google Trends search volume data with caching and rate limiting.
+    Retrieve Google Trends search volume data with multi-source fallback.
+    
+    Uses TrendsSourceManager for intelligent source selection:
+    1. SerpAPI (if configured) - most reliable
+    2. DuckDuckGo - free fallback
+    3. PyTrends - last resort (often fails with 429)
     
     Args:
         term: Search term (typically ticker symbol or company name)
@@ -48,28 +53,41 @@ async def get_google_trends(
     Returns:
         Dictionary with series data and latest value
     """
-    # Create cache key
-    cache_key = f"trends_{term}_{window_days}"
-    
-    # Check cache first
-    if cache_key in trends_cache:
-        logger.info(f"Google Trends cache hit for {term}")
-        return trends_cache[cache_key]
+    # Use the new TrendsSourceManager for multi-source fallback
+    from .trends_source_manager import TrendsSourceManager
     
     try:
-        # Apply rate limiting
-        async with trends_throttler:
-            trends_data = await _fetch_google_trends(term, window_days)
+        manager = TrendsSourceManager()
+        result = await manager.fetch_trends(term, window_days)
+        
+        if result.data:
+            # Add metadata about source used
+            data = result.data.copy()
+            data['_source_used'] = result.source_used
+            data['_is_cached'] = result.is_cached
+            data['_is_stale'] = result.is_stale
             
-        # Cache the results
-        trends_cache[cache_key] = trends_data
-        logger.info(f"Google Trends fetched and cached for {term}")
-        
-        return trends_data
-        
+            # Add note if using estimated data
+            if result.source_used == 'duckduckgo':
+                data['note'] = data.get('note', 'Estimated trend data from DuckDuckGo')
+            
+            return data
+        else:
+            # No data available from any source
+            error_msg = "All sources failed"
+            if result.errors:
+                error_msg = f"{error_msg}: {', '.join([e.message for e in result.errors[:2]])}"
+            
+            return {
+                "series": [],
+                "latest": 0,
+                "average": 0,
+                "trend": "unknown",
+                "error": error_msg
+            }
+            
     except Exception as e:
         logger.error(f"Error fetching Google Trends for {term}: {e}")
-        # Return empty structure on error for graceful degradation
         return {
             "series": [],
             "latest": 0,

@@ -13,7 +13,8 @@ from iso_financial_mcp.datasources.trends_source_manager import (
     TrendsSourceManager,
     PyTrendsDirect,
     PyTrendsWithProxy,
-    SerpAPIFallback
+    SerpAPISource,
+    DuckDuckGoSearchFallback
 )
 from iso_financial_mcp.reliability.adaptive_rate_limiter import AdaptiveRateLimiter
 from iso_financial_mcp.reliability.models import DataResult, RetryStrategy
@@ -31,13 +32,16 @@ class TestTrendsSourceManager:
         assert manager.health_monitor is not None
         assert manager.rate_limiter is not None
         assert manager.retry_strategy is not None
-        assert len(manager.sources) == 3
+        
+        # Sources are dynamically configured based on environment
+        # Minimum: duckduckgo + pytrends_direct (if no SerpAPI or proxy)
+        assert len(manager.sources) >= 2
         
         # Verify source names
         source_names = [name for name, _ in manager.sources]
-        assert "pytrends_direct" in source_names
-        assert "pytrends_proxy" in source_names
-        assert "serpapi_fallback" in source_names
+        assert "duckduckgo" in source_names  # Always present
+        assert "pytrends_direct" in source_names  # Always present
+        # serpapi and pytrends_proxy are optional based on configuration
     
     def test_pytrends_direct_initialization(self):
         """Test that PyTrends Direct source initializes correctly"""
@@ -53,12 +57,12 @@ class TestTrendsSourceManager:
         assert source is not None
         assert source.name == "pytrends_proxy"
     
-    def test_serpapi_fallback_initialization(self):
-        """Test that SerpAPI Fallback source initializes correctly"""
-        source = SerpAPIFallback()
+    def test_serpapi_source_initialization(self):
+        """Test that SerpAPI source initializes correctly"""
+        source = SerpAPISource()
         
         assert source is not None
-        assert source.name == "serpapi_fallback"
+        assert source.name == "serpapi"
         assert source.base_url == "https://serpapi.com/search"
 
 

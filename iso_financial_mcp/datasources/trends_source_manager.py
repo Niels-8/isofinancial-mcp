@@ -294,24 +294,24 @@ class PyTrendsWithProxy:
         }
 
 
-class SerpAPIFallback:
+class SerpAPISource:
     """
-    SerpAPI as final fallback for Google Trends data.
+    SerpAPI for Google Trends data (primary if configured).
     """
     
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize SerpAPI fallback.
+        Initialize SerpAPI source.
         
         Args:
             api_key: SerpAPI key. If None, reads from SERPAPI_KEY environment variable
         """
-        self.name = "serpapi_fallback"
+        self.name = "serpapi"
         self.api_key = api_key or os.getenv('SERPAPI_KEY')
         self.base_url = "https://serpapi.com/search"
         
         if not self.api_key:
-            logger.warning("No API key configured for SerpAPIFallback")
+            logger.info("No API key configured for SerpAPI - will be skipped")
     
     async def fetch_trends(
         self,
@@ -329,7 +329,7 @@ class SerpAPIFallback:
             Dictionary with trends data
         """
         if not self.api_key:
-            raise ValueError("API key not configured for SerpAPIFallback")
+            raise ValueError("API key not configured for SerpAPI")
         
         try:
             # Determine date range
@@ -453,6 +453,115 @@ class SerpAPIFallback:
         }
 
 
+class DuckDuckGoSearchFallback:
+    """
+    DuckDuckGo search as free fallback for trend estimation.
+    Uses search result counts as proxy for interest level.
+    """
+    
+    def __init__(self):
+        self.name = "duckduckgo"
+        self.base_url = "https://api.duckduckgo.com/"
+    
+    async def fetch_trends(
+        self,
+        term: str,
+        window_days: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Fetch trend estimation using DuckDuckGo search.
+        
+        Note: This provides a simplified trend estimation based on
+        search results, not actual search volume data like Google Trends.
+        
+        Args:
+            term: Search term
+            window_days: Time window in days (used for timeframe label only)
+            
+        Returns:
+            Dictionary with estimated trend data
+        """
+        try:
+            # Query DuckDuckGo instant answer API
+            params = {
+                "q": term,
+                "format": "json",
+                "no_html": 1,
+                "skip_disambig": 1
+            }
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(self.base_url, params=params)
+                response.raise_for_status()
+                data = response.json()
+            
+            # Check if we got meaningful results
+            has_results = bool(
+                data.get("Abstract") or 
+                data.get("RelatedTopics") or
+                data.get("Results")
+            )
+            
+            # Generate simplified trend data
+            # Since DDG doesn't provide time series, we return a single point
+            timeframe = self._get_timeframe(window_days)
+            
+            if has_results:
+                # Estimate interest based on result richness
+                abstract_score = 30 if data.get("Abstract") else 0
+                related_score = min(len(data.get("RelatedTopics", [])) * 5, 40)
+                results_score = min(len(data.get("Results", [])) * 10, 30)
+                
+                estimated_value = abstract_score + related_score + results_score
+                estimated_value = min(estimated_value, 100)  # Cap at 100
+                
+                return {
+                    "series": [{
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "value": estimated_value
+                    }],
+                    "latest": estimated_value,
+                    "average": estimated_value,
+                    "peak_value": estimated_value,
+                    "peak_date": datetime.now().strftime("%Y-%m-%d"),
+                    "timeframe": timeframe,
+                    "total_points": 1,
+                    "source": "duckduckgo",
+                    "note": "Estimated trend based on search result richness"
+                }
+            else:
+                return self._empty_result(term)
+                
+        except Exception as e:
+            logger.error(f"DuckDuckGo search error for {term}: {e}")
+            raise
+    
+    def _get_timeframe(self, window_days: int) -> str:
+        """Get timeframe string."""
+        if window_days <= 7:
+            return 'now 7-d'
+        elif window_days <= 30:
+            return 'today 1-m'
+        elif window_days <= 90:
+            return 'today 3-m'
+        else:
+            return 'today 12-m'
+    
+    def _empty_result(self, term: str) -> Dict[str, Any]:
+        """Return empty result structure."""
+        return {
+            "series": [],
+            "latest": 0,
+            "average": 0,
+            "peak_value": 0,
+            "peak_date": None,
+            "timeframe": "unknown",
+            "total_points": 0,
+            "source": "duckduckgo",
+            "note": "No search results found"
+        }
+
+
 # ============================================================================
 # Trends Source Manager (original content)
 # ============================================================================
@@ -499,11 +608,30 @@ class TrendsSourceManager:
         )
         
         # Initialize sources in priority order
-        self.sources = [
-            ("pytrends_direct", PyTrendsDirect()),
-            ("pytrends_proxy", PyTrendsWithProxy()),
-            ("serpapi_fallback", SerpAPIFallback())
-        ]
+        # 1. SerpAPI (if configured) - most reliable
+        # 2. DuckDuckGo - free fallback
+        # 3. PyTrends - kept as last resort but often fails with 429
+        sources_list = []
+        
+        # Try SerpAPI first if configured
+        serpapi = SerpAPISource()
+        if serpapi.api_key:
+            sources_list.append(("serpapi", serpapi))
+            logger.info("SerpAPI configured and will be used as primary trends source")
+        
+        # DuckDuckGo as free fallback
+        sources_list.append(("duckduckgo", DuckDuckGoSearchFallback()))
+        
+        # PyTrends as last resort (often gets 429 errors)
+        sources_list.append(("pytrends_direct", PyTrendsDirect()))
+        
+        # PyTrends with proxy if configured
+        pytrends_proxy = PyTrendsWithProxy()
+        if pytrends_proxy.proxy:
+            sources_list.append(("pytrends_proxy", pytrends_proxy))
+        
+        self.sources = sources_list
+        logger.info(f"Trends sources initialized: {[name for name, _ in self.sources]}")
     
     async def fetch_trends(
         self,
@@ -527,7 +655,6 @@ class TrendsSourceManager:
         # Check cache first
         cached_data = await self.cache_layer.get(cache_key, allow_stale=False)
         if cached_data is not None and not cached_data.is_stale:
-            from datetime import datetime
             cache_age = int(
                 (datetime.now() - cached_data.cached_at).total_seconds()
             )
@@ -599,7 +726,6 @@ class TrendsSourceManager:
         # All sources failed - try stale cache
         cached_data = await self.cache_layer.get(cache_key, allow_stale=True)
         if cached_data is not None:
-            from datetime import datetime
             cache_age = int(
                 (datetime.now() - cached_data.cached_at).total_seconds()
             )
@@ -646,6 +772,9 @@ class TrendsSourceManager:
         """
         Fetch from a source with retry and exponential backoff.
         
+        PyTrends sources get only 1 attempt since retries don't help with 429 errors.
+        Other sources use full retry strategy.
+        
         Args:
             source_name: Name of the source
             source_instance: Source instance to fetch from
@@ -655,9 +784,10 @@ class TrendsSourceManager:
         Returns:
             Trends data or None if all retries failed
         """
-        from datetime import datetime
+        # PyTrends sources: only 1 attempt (retries don't help with 429)
+        max_attempts = 1 if 'pytrends' in source_name else self.retry_strategy.max_attempts
         
-        for attempt in range(self.retry_strategy.max_attempts):
+        for attempt in range(max_attempts):
             try:
                 # Apply rate limiting
                 await self.rate_limiter.acquire()
@@ -708,18 +838,25 @@ class TrendsSourceManager:
                 )
                 self.rate_limiter.record_error()
                 
-                # Handle rate limit with backoff
-                if is_rate_limit and attempt < self.retry_strategy.max_attempts - 1:
+                # For PyTrends 429 errors, skip retry and move to next source
+                if 'pytrends' in source_name and is_rate_limit:
+                    logger.warning(
+                        f"PyTrends rate limit (429) for {term} - skipping retries, "
+                        f"will try next source"
+                    )
+                    return None
+                
+                # Handle other errors with retry
+                if attempt < max_attempts - 1:
                     delay = self.retry_strategy.get_next_delay(attempt)
                     logger.warning(
-                        f"Rate limit hit for {term} on {source_name}, "
-                        f"retrying in {delay:.1f}s (attempt {attempt + 1}/"
-                        f"{self.retry_strategy.max_attempts})"
+                        f"Error on {source_name} for {term}, "
+                        f"retrying in {delay:.1f}s (attempt {attempt + 1}/{max_attempts})"
                     )
                     await asyncio.sleep(delay)
                     continue
                 else:
-                    # Non-rate-limit error or final attempt
+                    # Final attempt failed
                     logger.error(
                         f"Error fetching from {source_name} for {term}: {e}"
                     )
@@ -727,8 +864,7 @@ class TrendsSourceManager:
         
         # All retries exhausted
         logger.error(
-            f"All {self.retry_strategy.max_attempts} retry attempts "
-            f"exhausted for {source_name}"
+            f"All {max_attempts} retry attempts exhausted for {source_name}"
         )
         return None
     

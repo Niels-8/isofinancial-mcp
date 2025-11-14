@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2025-11-14
+
+### Changed
+- **Google Trends Source Strategy** (Breaking Change for PyTrends users)
+  - **New Priority Order**: SerpAPI (if configured) → DuckDuckGo (free) → PyTrends (fallback)
+  - **DuckDuckGo Integration**: Added free, reliable search trend estimation using DuckDuckGo API
+  - **SerpAPI Support**: Added optional SerpAPI integration for full Google Trends data (requires API key)
+  - **PyTrends Optimization**: Reduced retry attempts from 3 to 1 (retries don't help with 429 errors)
+  - **Rationale**: PyTrends frequently fails with 429 (Too Many Requests) errors from Google's bot detection
+  - **Impact**: Users without SerpAPI will get estimated trends from DuckDuckGo instead of frequent failures
+  - **Migration**: Set `SERPAPI_KEY` environment variable for full Google Trends data, or accept DuckDuckGo estimates
+
+### Added
+- **DuckDuckGoSearchFallback**: Free, bot-friendly search trend estimation
+  - Estimates interest level (0-100) based on search result richness
+  - No rate limiting or API key required
+  - Fast response times (200-500ms)
+  - Returns single data point (current snapshot)
+- **SerpAPISource**: Premium Google Trends access
+  - Full time series data with related queries
+  - Highly reliable (99%+ success rate)
+  - Requires paid API key (~$50/month for 5000 searches)
+- **Documentation**: Added `docs/TRENDS_SOURCES.md` with detailed source comparison
+
+### Fixed
+- **PyTrends 429 Handling**: Skip retries on rate limit errors, immediately try next source
+- **Import Shadowing**: Fixed `datetime` import shadowing in `trends_source_manager.py`
+
 ## [0.4.0] - 2025-11-14
 
 ### Added

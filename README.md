@@ -23,6 +23,9 @@ An enhanced open-source MCP (Model Context Protocol) server providing comprehens
 - **Earnings Calendar**: EPS estimates, actuals, surprise percentages with BMO/AMC timing
 - **News Headlines**: Yahoo Finance RSS integration with source attribution and duplicate detection
 - **Google Trends**: Search volume analysis with momentum indicators and related queries
+  - **Multi-source strategy**: SerpAPI (if configured) → DuckDuckGo (free) → PyTrends (fallback)
+  - **Note**: PyTrends often fails with 429 errors; DuckDuckGo provides reliable estimated trends
+  - See [TRENDS_SOURCES.md](docs/TRENDS_SOURCES.md) for detailed source comparison
 
 ### 🔧 Advanced Technical Features
 - **Intelligent Caching**: Multi-tier caching system with configurable TTL per data source
@@ -376,9 +379,14 @@ get_news_headlines(ticker, limit=10, lookback_days=3)
 ```python
 get_google_trends(term, window_days=30)
 ```
-- **Data Source**: Google Trends API via pytrends
+- **Data Sources** (priority order):
+  1. **SerpAPI** (if configured): Full Google Trends data, highly reliable
+  2. **DuckDuckGo** (default): Estimated trends, free and reliable
+  3. **PyTrends** (fallback): Full data but often fails with 429 errors
 - **Cache TTL**: 24 hours
-- **Features**: Search volume trends, momentum analysis, related queries, peak detection
+- **Features**: Search volume trends, momentum analysis, related queries (SerpAPI/PyTrends only)
+- **Configuration**: Set `SERPAPI_KEY` for best results, or rely on free DuckDuckGo
+- **See**: [TRENDS_SOURCES.md](docs/TRENDS_SOURCES.md) for detailed comparison
 
 ### 🔧 Technical Features
 
@@ -584,7 +592,7 @@ The server uses entirely free and public APIs:
 - **Yahoo Finance**: Market data, financials, options (no authentication)
 - **SEC EDGAR**: Official SEC filings API (public access)
 - **FINRA**: Daily short volume CSV files (public data)
-- **Google Trends**: Search volume data via pytrends (no API key)
+- **Google Trends**: Multi-source (DuckDuckGo free, SerpAPI optional, PyTrends fallback)
 - **RSS Feeds**: News headlines from Yahoo Finance RSS (public)
 
 ### Optional Configuration
@@ -867,7 +875,7 @@ agent.add_financial_data_source("iso-financial-mcp")
 | Yahoo Finance | Market data, financials, options | Real-time to daily | 5min-24h | N/A | High |
 | SEC EDGAR | Official filings | Real-time | 6 hours | RSS Feed, XBRL API | Very High |
 | FINRA | Short volume | Daily | 24 hours | N/A | High |
-| Google Trends | Search volume | Daily | 24 hours | Proxy, SerpAPI | Medium |
+| Google Trends | Search volume | Daily | 24 hours | DuckDuckGo, SerpAPI | Medium-High |
 | Earnings | Calendar data | Daily | 24 hours | Nasdaq, Alpha Vantage | High |
 | RSS Feeds | News headlines | Hourly | 2 hours | N/A | Medium |
 
@@ -877,7 +885,7 @@ agent.add_financial_data_source("iso-financial-mcp")
 Automatic fallback to alternative data sources when primary sources fail:
 
 - **SEC Filings**: EDGAR API → RSS Feed → XBRL API → Stale Cache
-- **Google Trends**: Direct → Proxy → SerpAPI → Stale Cache
+- **Google Trends**: SerpAPI (if configured) → DuckDuckGo → PyTrends → Stale Cache
 - **Earnings**: Yahoo Finance → Nasdaq API → Alpha Vantage → Estimation
 
 #### Intelligent Caching

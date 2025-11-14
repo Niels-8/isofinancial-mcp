@@ -561,7 +561,8 @@ def format_snapshot_for_llm(snapshot: Dict[str, Any]) -> str:
         if beta:
             metrics.append(f"Beta: {beta:.2f}")
         if div_yield:
-            metrics.append(f"Div Yield: {div_yield*100:.2f}%")
+            # Yahoo Finance returns dividendYield already as percentage (e.g., 2.85 = 2.85%)
+            metrics.append(f"Div Yield: {div_yield:.2f}%")
         
         if metrics:
             lines.append(" | ".join(metrics))
