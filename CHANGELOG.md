@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-03-06
+
+### Fixed
+- **SerpAPI 429 Handling**: Skip retries immediately on rate limit errors (same behavior as PyTrends), move to next source instead of blocking with backoff
+- **Retry Strategy Optimization**: Reduced `max_attempts` from 3 to 2, `initial_delay` from 10s to 2s, `max_delay` from 60s to 10s, `jitter_range` from (1.0, 3.0) to (0.5, 1.5)
+- **Rate Limiter Tuning**: Reduced `initial_delay` from 5s to 1s, `slow_mode_delay` from 10s to 3s — prevents serialized blocking when fetching multiple tickers
+- **Timeout Prevention**: Combined changes reduce worst-case trends fetch from 5-8 minutes to under 30 seconds for 10 tickers, preventing upstream Cloud Run timeouts
+
 ## [0.4.1] - 2025-11-14
 
 ### Changed
