@@ -594,17 +594,17 @@ class TrendsSourceManager:
         self.health_monitor = health_monitor or HealthMonitor()
         self.error_handler = error_handler or ErrorHandler()
         self.rate_limiter = rate_limiter or AdaptiveRateLimiter(
-            initial_delay=5.0,
-            slow_mode_delay=10.0,
+            initial_delay=1.0,
+            slow_mode_delay=3.0,
             error_threshold=0.5,
             window_size=10
         )
         self.retry_strategy = retry_strategy or RetryStrategy(
-            max_attempts=3,
-            initial_delay=10.0,
-            max_delay=60.0,
+            max_attempts=2,
+            initial_delay=2.0,
+            max_delay=10.0,
             exponential_base=2.0,
-            jitter_range=(1.0, 3.0)
+            jitter_range=(0.5, 1.5)
         )
         
         # Initialize sources in priority order
@@ -842,6 +842,14 @@ class TrendsSourceManager:
                 if 'pytrends' in source_name and is_rate_limit:
                     logger.warning(
                         f"PyTrends rate limit (429) for {term} - skipping retries, "
+                        f"will try next source"
+                    )
+                    return None
+
+                # SerpAPI 429: skip retries too, move to next source
+                if 'serpapi' in source_name and is_rate_limit:
+                    logger.warning(
+                        f"SerpAPI rate limit (429) for {term} - skipping retries, "
                         f"will try next source"
                     )
                     return None
